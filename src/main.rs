@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
@@ -6,19 +6,18 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use markdown::to_mdast;
-use rand::Rng;
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
+    text::{Line, Span},
     widgets::{
-        BarChart, Block, Borders, Cell, Gauge, List, ListItem, Paragraph, Row, Sparkline, Table,
-        TableState, Tabs,
+        BarChart, Block, Borders, Cell, Gauge, List, ListItem, ListState, Paragraph, Row, Sparkline, Table,
+        Tabs,
     },
     Frame, Terminal,
 };
-use std::io::{self, stdout, BufRead, Write};
+use std::io::{self, stdout, Write};
 use std::time::{Duration, Instant};
 use syntect::{
     easy::HighlightLines,
@@ -27,7 +26,7 @@ use syntect::{
 };
 
 #[derive(Parser)]
-#[command(name = "vibrant-ui", about = "Vibrant UI library for Hacker Lang (inspired by Bubble Tea, Rich, Ratatui)")]
+#[command(name = "yuy-lib", about = "Vibrant UI library for Hacker Lang (inspired by Bubble Tea, Rich, Ratatui)")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -161,7 +160,6 @@ fn render_table(headers: &str, rows: &str) -> Result<()> {
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
     terminal.draw(|f| {
         let header_cells = headers.split(',').map(|h| Cell::from(h.trim()));
         let header = Row::new(header_cells).style(Style::default().add_modifier(Modifier::BOLD));
@@ -169,16 +167,12 @@ fn render_table(headers: &str, rows: &str) -> Result<()> {
             let cells = r.split(',').map(|c| Cell::from(c.trim()));
             Row::new(cells)
         }).collect();
-
-        let widths = vec![Constraint::Percentage(50), Constraint::Percentage(50)];  // Adjust as needed
-        let table = Table::new(rows_vec)
+        let widths = vec![Constraint::Percentage(50), Constraint::Percentage(50)]; // Adjust as needed
+        let table = Table::new(rows_vec, widths)
             .header(header)
-            .widths(&widths)
             .block(Block::default().borders(Borders::ALL).title("Table"));
-
         f.render_widget(table, f.area());
     })?;
-
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
@@ -191,16 +185,13 @@ fn render_progress(percent: u16, label: &str) -> Result<()> {
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
     terminal.draw(|f| {
         let gauge = Gauge::default()
             .block(Block::default().borders(Borders::ALL).title(label))
             .gauge_style(Style::default().fg(Color::Green))
             .percent(percent.clamp(0, 100));
-
         f.render_widget(gauge, f.area());
     })?;
-
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
@@ -216,7 +207,7 @@ fn render_spinner(duration: u64, message: &str) -> Result<()> {
             std::thread::sleep(Duration::from_millis(80));
         }
     }
-    println!("\rDone!        ");
+    println!("\rDone! ");
     Ok(())
 }
 
@@ -226,7 +217,6 @@ fn render_syntax(code: &str, lang: &str) -> Result<()> {
     let ts = ThemeSet::load_defaults();
     let theme: &Theme = &ts.themes["base16-ocean.dark"];
     let mut h = HighlightLines::new(syntax, theme);
-
     for line in code.lines() {
         let ranges = h.highlight_line(line, &ss)?;
         for (style, text) in ranges {
@@ -239,9 +229,9 @@ fn render_syntax(code: &str, lang: &str) -> Result<()> {
 }
 
 fn render_markdown(content: &str) -> Result<()> {
-    let md = to_mdast(content, &markdown::ParseOptions::default())?;
+    let md = to_mdast(content, &markdown::ParseOptions::default()).map_err(|e| anyhow::anyhow!("Failed to parse markdown: {:?}", e))?;
     // Simple rendering - expand for full Rich-like
-    println!("{:#?}", md);  // Placeholder: convert to styled text
+    println!("{:#?}", md); // Placeholder: convert to styled text
     Ok(())
 }
 
@@ -251,18 +241,14 @@ fn render_list(items: &str, selectable: bool) -> Result<()> {
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
     let list_items: Vec<ListItem> = items.split(',').map(|i| ListItem::new(i.trim())).collect();
     let mut state = ListState::default();
-
     terminal.draw(|f| {
         let list = List::new(list_items.clone())
             .block(Block::default().borders(Borders::ALL).title("List"))
             .highlight_style(Style::default().add_modifier(Modifier::BOLD).fg(Color::Green));
-
         f.render_stateful_widget(list, f.area(), &mut state);
     })?;
-
     if selectable {
         // Wait for selection (simple key handler)
         if let Event::Key(key) = event::read()? {
@@ -270,14 +256,13 @@ fn render_list(items: &str, selectable: bool) -> Result<()> {
                 match key.code {
                     KeyCode::Down => state.select(Some(state.selected().unwrap_or(0) + 1)),
                     KeyCode::Up => state.select(Some(state.selected().unwrap_or(0).saturating_sub(1))),
-                    KeyCode::Enter => println!("Selected: {}", list_items[state.selected().unwrap_or(0)].content),
+                    KeyCode::Enter => println!("Selected: {}", list_items[state.selected().unwrap_or(0)].content().lines[0].spans[0].content),
                     KeyCode::Esc => (),
                     _ => (),
                 }
             }
         }
     }
-
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
@@ -289,17 +274,16 @@ fn render_chart(data: &str, chart_type: &str) -> Result<()> {
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
     let data_vec: Vec<u64> = data.split(',').map(|d| d.trim().parse().unwrap_or(0)).collect();
-
     terminal.draw(|f| {
         let block = Block::default().borders(Borders::ALL).title("Chart");
         match chart_type {
             "bar" => {
-                let bars: Vec<(&str, u64)> = data_vec.iter().enumerate().map(|(i, &v)| (i.to_string().as_str(), v)).collect();
+                let bars: Vec<(String, u64)> = data_vec.iter().enumerate().map(|(i, &v)| (i.to_string(), v)).collect();
+                let bar_data: Vec<(&str, u64)> = bars.iter().map(|(s, v)| (s.as_str(), *v)).collect();
                 let chart = BarChart::default()
                     .block(block)
-                    .data(&bars)
+                    .data(&bar_data)
                     .bar_width(3)
                     .bar_style(Style::default().fg(Color::Cyan));
                 f.render_widget(chart, f.area());
@@ -311,10 +295,9 @@ fn render_chart(data: &str, chart_type: &str) -> Result<()> {
                     .style(Style::default().fg(Color::Green));
                 f.render_widget(spark, f.area());
             }
-            _ => (),  // Add line chart if needed
+            _ => (), // Add line chart if needed
         }
     })?;
-
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
@@ -348,14 +331,11 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(3), Constraint::Min(0)])
             .split(f.area());
-
         let tabs = Tabs::new(self.tabs.iter().cloned().map(Line::from).collect::<Vec<_>>())
             .block(Block::default().borders(Borders::ALL).title("Tabs"))
             .select(self.tab_index)
             .highlight_style(Style::default().add_modifier(Modifier::BOLD).fg(Color::Green));
-
         f.render_widget(tabs, chunks[0]);
-
         // Content per tab (demo)
         let content = Paragraph::new(format!("Content for {}", self.tabs[self.tab_index]))
             .block(Block::default().borders(Borders::ALL));
@@ -363,20 +343,17 @@ impl App {
     }
 }
 
-fn run_interactive_app(mode: &str) -> Result<()> {
+fn run_interactive_app(_mode: &str) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
     let mut app = App::new();
     let tick_rate = Duration::from_millis(250);
     let mut last_tick = Instant::now();
-
     loop {
         terminal.draw(|f| app.view(f))?;
-
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
         if crossterm::event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
@@ -393,7 +370,6 @@ fn run_interactive_app(mode: &str) -> Result<()> {
             last_tick = Instant::now();
         }
     }
-
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     Ok(())
